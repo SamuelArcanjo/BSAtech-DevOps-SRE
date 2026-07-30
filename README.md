@@ -5,7 +5,7 @@ Projeto desenvolvido como teste prático para demonstrar fundamentos de infraest
 Toda a stack é iniciada com um único comando:
 
 ```bash
-docker compose up -d
+docker compose up -d --build
 ```
 
 ## Arquitetura
@@ -24,7 +24,7 @@ A stack contém:
 - **NGINX Prometheus Exporter:** transforma os dados do Nginx em métricas.
 - **Prometheus:** coleta as métricas do exporter a cada 5 segundos.
 - **Grafana:** apresenta as métricas em um dashboard provisionado automaticamente.
-- **Shell Script:** verifica os contêineres e testa a resposta HTTP do Nginx.
+- **Shell Script:** verifica a execução e a saúde dos contêineres, gera tráfego e valida os endpoints da stack.
 
 ## Tecnologias utilizadas
 
@@ -50,7 +50,7 @@ docker compose version
 ## Estrutura do projeto
 
 ```text
-devops-bsa/
+BSAtech-DevOps-SRE/
 ├── docker-compose.yml
 ├── grafana/
 │   ├── dashboards/
@@ -64,6 +64,8 @@ devops-bsa/
 │   ├── default.conf
 │   └── html/
 │       └── index.html
+├── nginx-exporter/
+│   └── Dockerfile
 ├── prometheus/
 │   └── prometheus.yml
 ├── README.md
@@ -72,16 +74,22 @@ devops-bsa/
 
 ## Como executar
 
-Após clonar o repositório, acesse a pasta do projeto:
+Clone o repositório:
 
 ```bash
-cd devops-bsa
+git clone https://github.com/SamuelArcanjo/BSAtech-DevOps-SRE.git
 ```
 
-Inicie todos os serviços:
+Acesse a pasta:
 
 ```bash
-docker compose up -d
+cd BSAtech-DevOps-SRE
+```
+
+Construa a imagem personalizada do exporter e inicie todos os serviços:
+
+```bash
+docker compose up -d --build
 ```
 
 Confira o estado dos contêineres:
@@ -90,12 +98,33 @@ Confira o estado dos contêineres:
 docker compose ps
 ```
 
-Os quatro serviços devem aparecer com o estado `Up`:
+Após o período inicial de verificação, os quatro serviços devem aparecer com o estado `healthy`:
 
 - `nginx`
 - `nginx-exporter`
 - `prometheus`
 - `grafana`
+
+
+## Healthchecks e ordem de inicialização
+
+Todos os serviços possuem verificações de saúde configuradas no Docker Compose:
+
+- **Nginx:** valida a página HTML e o endpoint `/nginx_status`.
+- **NGINX Prometheus Exporter:** valida o endpoint `/metrics` e confirma que a métrica `nginx_up` possui valor `1`.
+- **Prometheus:** utiliza o comando `promtool check ready` para confirmar que está pronto para receber consultas.
+- **Grafana:** valida o endpoint `/api/health`.
+
+As dependências utilizam `condition: service_healthy`. Dessa forma, cada serviço aguarda sua dependência ficar saudável antes de iniciar.
+
+A ordem de inicialização é:
+
+```text
+Nginx saudável
+→ NGINX Exporter
+→ Prometheus
+→ Grafana
+```
 
 ## Endereços dos serviços
 
@@ -154,10 +183,13 @@ O dashboard possui os seguintes painéis:
 
 O arquivo `script.sh` realiza as seguintes operações:
 
-- Verifica se os quatro serviços estão em execução.
+- Verifica se os quatro contêineres estão em execução.
+- Confirma se todos os contêineres estão com o estado `healthy`.
 - Envia 10 requisições HTTP GET para o Nginx.
 - Confere se cada resposta possui código HTTP 200.
-- Exibe um resumo colorido no terminal.
+- Valida o endpoint `/nginx_status`.
+- Confirma que o exporter expõe a métrica `nginx_up` com valor `1`.
+- Valida os endpoints de prontidão do Prometheus e de saúde do Grafana.
 - Retorna código de saída `0` em caso de sucesso e `1` em caso de falha.
 
 Para executar:
@@ -171,10 +203,12 @@ Exemplo de resumo esperado:
 
 ```text
 Contêineres em execução: 4/4
+Contêineres saudáveis: 4/4
 Requisições HTTP 200: 10/10
 Requisições com erro: 0/10
+Endpoints validados: 4/4
 
-[OK] Todos os serviços estão funcionando corretamente.
+[OK] Todos os serviços estão funcionando e saudáveis.
 ```
 
 As requisições feitas pelo script também geram tráfego para o painel de RPS do Grafana.
